@@ -245,7 +245,8 @@ export function formatFieldName(field: string): string {
 		'socketPath': 'Socket path',
 		'collectActivity': 'Collect activity',
 		'collectMetrics': 'Collect metrics',
-		'highlightChanges': 'Highlight changes'
+		'highlightChanges': 'Highlight changes',
+		'trustComposePathLabels': 'Trust Compose path labels'
 	};
 
 	if (specialCases[field]) {

@@ -68,6 +68,10 @@
 	type SortDirection = 'asc' | 'desc';
 
 	let stacks = $state<ComposeStackInfo[]>([]);
+	let autoAdoptError = $state<string | null>(null);
+	let autoAdoptRejections = $state<Record<string, string>>({});
+	let stacksRequestId = 0;
+	let stacksRequest: { envId: number; adoptionEnabled: boolean; id: number; promise: Promise<void> } | null = null;
 	// Container IDs whose last update check failed this session (e.g. registry
 	// rate-limited), with the error text for the tooltip — session-only (#1255).
 	let failedUpdateCheckIds = $state<Set<string>>(new Set());
@@ -272,6 +276,11 @@
 
 	// Derived: current environment details for reactive port URL generation
 	const currentEnvDetails = $derived($environments.find(e => e.id === $currentEnvironment?.id) ?? null);
+	const autoAdoptEnabled = $derived(
+		currentEnvDetails?.trustComposePathLabels === true &&
+		(currentEnvDetails.connectionType ?? 'socket') === 'socket' &&
+		$canAccess('stacks', 'create')
+	);
 
 	// Polling intervals - module scope for cleanup in onDestroy
 	let stacksInterval: ReturnType<typeof setInterval> | null = null;
@@ -976,14 +985,19 @@
 
 	// Track if initial fetch has been done
 	let initialFetchDone = $state(false);
+	let lastAutoAdoptEnabled = $state(false);
 
 	// Subscribe to environment changes using $effect
 	$effect(() => {
 		const env = $currentEnvironment;
 		const newEnvId = env?.id ?? null;
+		const adoptionEnabled = autoAdoptEnabled;
 
-		// Only fetch if environment actually changed or this is initial load
-		if (env && (newEnvId !== envId || !initialFetchDone)) {
+		// Also reload when the full environment record or create permission arrives.
+		if (env && (newEnvId !== envId || !initialFetchDone || adoptionEnabled !== lastAutoAdoptEnabled)) {
+			autoAdoptError = null;
+			autoAdoptRejections = {};
+			lastAutoAdoptEnabled = adoptionEnabled;
 			envId = newEnvId;
 			initialFetchDone = true;
 			fetchStacks();
@@ -992,6 +1006,10 @@
 			loadTags(newEnvId);
 		} else if (!env) {
 			// No environment - clear data and stop loading
+			stacksRequestId++;
+			autoAdoptError = null;
+			autoAdoptRejections = {};
+			initialFetchDone = false;
 			envId = null;
 			stacks = [];
 			containerStats = new Map();
@@ -1032,24 +1050,64 @@
 		}
 	}
 
-	async function fetchStacks() {
+	function fetchStacks(): Promise<void> {
+		const requestEnvId = envId;
+		if (requestEnvId === null || requestEnvId !== $currentEnvironment?.id) { return Promise.resolve(); }
+		const adoptionEnabled = autoAdoptEnabled;
+		// Events and polling share ongoing work instead of repeatedly invalidating a slow request.
+		if (stacksRequest?.envId === requestEnvId && stacksRequest.adoptionEnabled === adoptionEnabled && stacksRequest.id === stacksRequestId) {
+			return stacksRequest.promise;
+		}
+		const requestId = ++stacksRequestId;
+		const promise = fetchStacksForEnvironment(requestEnvId, adoptionEnabled, requestId).finally(() => {
+			if (stacksRequest?.id === requestId) { stacksRequest = null; }
+		});
+		stacksRequest = { envId: requestEnvId, adoptionEnabled, id: requestId, promise };
+		return promise;
+	}
+
+	async function fetchStacksForEnvironment(requestEnvId: number, adoptionEnabled: boolean, requestId: number) {
+		const isCurrentRequest = () => requestId === stacksRequestId && requestEnvId === $currentEnvironment?.id && adoptionEnabled === autoAdoptEnabled;
 		// Show loading skeleton on initial load or when environment changes, but not on refreshes
-		if (lastLoadedEnvId !== envId) {
+		if (lastLoadedEnvId !== requestEnvId) {
 			loading = true;
 		}
 		try {
+			let adoptionError: string | null = null;
+			let rejections: Record<string, string> = {};
+			if (adoptionEnabled) {
+				try {
+					// The server discovers and validates paths; both list GETs must wait for it.
+					const response = await fetch(appendEnvParam('/api/stacks/auto-adopt', requestEnvId), { method: 'POST' });
+					if (!isCurrentRequest()) { return; }
+					if (!response.ok) {
+						const data = await response.json().catch(() => null);
+						throw new Error(data?.error || `Request failed (${response.status})`);
+					}
+					const data: { results: Array<{ stackName: string; status: 'assigned' | 'preserved' | 'rejected'; reason?: string; message?: string }> } = await response.json();
+					rejections = Object.fromEntries(data.results
+						.filter(result => result.status === 'rejected')
+						.map(result => [result.stackName, [result.reason, result.message].filter(Boolean).join(': ') || 'Compose path labels could not be trusted.']));
+				} catch (error) {
+					adoptionError = error instanceof Error ? error.message : 'Request failed';
+				}
+			}
+			if (!isCurrentRequest()) { return; }
+			autoAdoptError = adoptionError;
+			autoAdoptRejections = rejections;
+
 			const [stacksRes, sourcesRes, gitStacksRes, iconsRes] = await Promise.all([
-				fetch(appendEnvParam('/api/stacks', envId)),
-				fetch(appendEnvParam('/api/stacks/sources', envId)),
-				fetch(appendEnvParam('/api/git/stacks', envId)),
-				fetch(appendEnvParam('/api/container-icons', envId))
+				fetch(appendEnvParam('/api/stacks', requestEnvId)),
+				fetch(appendEnvParam('/api/stacks/sources', requestEnvId)),
+				fetch(appendEnvParam('/api/git/stacks', requestEnvId)),
+				fetch(appendEnvParam('/api/container-icons', requestEnvId))
 			]);
-			iconOverrides = iconsRes.ok ? await iconsRes.json() : {};
+			if (!isCurrentRequest()) { return; }
 
 			// Handle stale environment ID (e.g., after database reset)
-			if (stacksRes.status === 404 && envId) {
-				console.warn(`[Stacks] Got 404 for env ${envId}, refreshing environments`);
-				clearStaleEnvironment(envId);
+			if (stacksRes.status === 404) {
+				console.warn(`[Stacks] Got 404 for env ${requestEnvId}, refreshing environments`);
+				clearStaleEnvironment(requestEnvId);
 				environments.refresh();
 				return;
 			}
@@ -1067,6 +1125,9 @@
 			const dockerStacks = await safeJson(stacksRes, []);
 			const sourcesData = await safeJson(sourcesRes, {});
 			const gitStacksData = await safeJson(gitStacksRes, []);
+			const iconsData = iconsRes.ok ? await safeJson(iconsRes, {}) : {};
+			if (!isCurrentRequest()) { return; }
+			iconOverrides = iconsData;
 
 			// Debug logging
 			if (gitStacksData?.error) {
@@ -1106,11 +1167,14 @@
 			}
 			stackEnvVarCounts = counts;
 		} catch (error) {
+			if (!isCurrentRequest()) { return; }
 			console.error('Failed to fetch stacks:', error);
 			toast.error('Failed to load stacks');
 		} finally {
-			loading = false;
-			lastLoadedEnvId = envId;
+			if (isCurrentRequest()) {
+				loading = false;
+				lastLoadedEnvId = requestEnvId;
+			}
 		}
 	}
 
@@ -1678,6 +1742,7 @@
 
 	// Cleanup on component destroy
 	onDestroy(() => {
+		stacksRequestId++;
 		// Clear pending inline-error dismiss timers
 		pendingTimeouts.forEach(clearTimeout);
 		pendingTimeouts = [];
@@ -1790,6 +1855,13 @@
 			{/if}
 		</div>
 	</div>
+
+	{#if autoAdoptError}
+		<div role="alert" class="shrink-0 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
+			<AlertTriangle class="w-4 h-4 shrink-0 mt-0.5" />
+			<p class="min-w-0 break-words">Automatic stack adoption failed: {autoAdoptError}. Stacks are still loaded normally. Refresh to retry.</p>
+		</div>
+	{/if}
 
 	<!-- Selection bar - always reserve space to prevent layout shift -->
 	<div class="h-4 shrink-0">
@@ -1971,6 +2043,19 @@
 						>
 							{stack.name}
 						</button>
+						{#if autoAdoptRejections[stack.name]}
+							<Tooltip.Root>
+								<Tooltip.Trigger class="shrink-0" onclick={event => event.stopPropagation()} aria-label={`Auto-adoption rejected: ${autoAdoptRejections[stack.name]}`}>
+									<Badge variant="secondary" class="text-2xs py-0 px-1 bg-amber-500/10 text-amber-700 dark:text-amber-400 cursor-help flex items-center gap-0.5">
+										<AlertTriangle class="w-2.5 h-2.5" />
+										Not adopted
+									</Badge>
+								</Tooltip.Trigger>
+								<Tooltip.Content class="max-w-xs break-words">
+									Auto-adoption rejected: {autoAdoptRejections[stack.name]}
+								</Tooltip.Content>
+							</Tooltip.Root>
+						{/if}
 					{#if systemType}
 						<Tooltip.Root>
 							<Tooltip.Trigger>

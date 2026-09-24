@@ -76,7 +76,8 @@ export const GET: RequestHandler = async ({ cookies }) => {
 /**
  * @openapi
  * summary: Register a new Docker environment (host)
- * body: {name:string!, connectionType:string, host:string, port:integer, protocol:string, socketPath:string, icon:string, publicIp:string, labels:string}
+ * body: {name:string!, connectionType:string, host:string, port:integer, protocol:string, socketPath:string, icon:string, publicIp:string, labels:string, trustComposePathLabels:boolean}
+ * body-desc: trustComposePathLabels defaults to false and only applies to local Unix socket environments.
  * body-example: {"name":"hhdocker03","connectionType":"socket","socketPath":"/var/run/docker.sock","icon":"server"}
  * resp-200: {id:integer!, name:string!, connectionType:string!}
  * resp-200-example: {"id":3,"name":"hhdocker03","connectionType":"socket"}
@@ -94,6 +95,9 @@ export const POST: RequestHandler = async (event) => {
 
 	try {
 		const data = await request.json();
+		if (data.trustComposePathLabels !== undefined && typeof data.trustComposePathLabels !== 'boolean') {
+			return json({ error: 'trustComposePathLabels must be a boolean' }, { status: 400 });
+		}
 
 		const nameCheck = validateEnvName(data.name);
 		if (!nameCheck.ok) {
@@ -135,6 +139,7 @@ export const POST: RequestHandler = async (event) => {
 			collectActivity: data.collectActivity !== false,
 			collectMetrics: data.collectMetrics !== false,
 			highlightChanges: data.highlightChanges !== false,
+			trustComposePathLabels: data.trustComposePathLabels ?? false,
 			labels: serializeLabels(labels),
 			connectionType: connectionType,
 			hawserToken: data.hawserToken

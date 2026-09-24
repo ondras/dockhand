@@ -37,6 +37,7 @@ export const environments = pgTable('environments', {
 	collectActivity: boolean('collect_activity').default(true),
 	collectMetrics: boolean('collect_metrics').default(true),
 	highlightChanges: boolean('highlight_changes').default(true),
+	trustComposePathLabels: boolean('trust_compose_path_labels').notNull().default(false),
 	labels: text('labels'), // JSON array of label strings for categorization
 	// Connection settings
 	connectionType: text('connection_type').default('socket'), // 'socket' | 'direct' | 'hawser-standard' | 'hawser-edge'

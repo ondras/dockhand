@@ -65,8 +65,8 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
  * @openapi
  * summary: Update an environment; renaming also renames its on-disk stacks/git-repos directories
  * path: id:integer! Environment id (from GET /api/environments)
- * body: {name:string, host:string, port:integer, protocol:string, tlsCa:string, tlsCert:string, tlsKey:string, tlsSkipVerify:boolean, icon:string, socketPath:string, collectActivity:boolean, collectMetrics:boolean, highlightChanges:boolean, labels:string, connectionType:string, hawserToken:string, publicIp:string}
- * body-desc: tlsKey/hawserToken are write-only - a blank value keeps the stored secret; a non-blank value replaces it.
+ * body: {name:string, host:string, port:integer, protocol:string, tlsCa:string, tlsCert:string, tlsKey:string, tlsSkipVerify:boolean, icon:string, socketPath:string, collectActivity:boolean, collectMetrics:boolean, highlightChanges:boolean, trustComposePathLabels:boolean, labels:string, connectionType:string, hawserToken:string, publicIp:string}
+ * body-desc: tlsKey/hawserToken are write-only - a blank value keeps the stored secret; a non-blank value replaces it. Omitted trustComposePathLabels stays unchanged; it only applies to local Unix socket environments.
  * body-example: {"name":"hhdocker03","collectMetrics":true}
  * resp-200: {id:integer!, name:string!, connectionType:string!, labels:array<string>, publicIp:string, hasTlsKey:boolean, hasHawserToken:boolean}
  * resp-200-desc: The tlsKey/hawserToken secrets are NEVER returned; hasTlsKey / hasHawserToken indicate whether one is stored.
@@ -94,6 +94,9 @@ export const PUT: RequestHandler = async (event) => {
 		}
 
 		const data = await request.json();
+		if (data.trustComposePathLabels !== undefined && typeof data.trustComposePathLabels !== 'boolean') {
+			return json({ error: 'trustComposePathLabels must be a boolean' }, { status: 400 });
+		}
 
 		// #1179: validate name if it's being changed. Existing invalid names are
 		// not auto-corrected — only writes go through this check.
@@ -183,6 +186,7 @@ export const PUT: RequestHandler = async (event) => {
 			collectActivity: data.collectActivity,
 			collectMetrics: data.collectMetrics,
 			highlightChanges: data.highlightChanges,
+			trustComposePathLabels: data.trustComposePathLabels,
 			labels: labels,
 			connectionType: data.connectionType,
 			hawserToken: trimmedToken || undefined

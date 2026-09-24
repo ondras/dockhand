@@ -1,0 +1,1 @@
+ALTER TABLE `environments` ADD `trust_compose_path_labels` integer DEFAULT false NOT NULL;

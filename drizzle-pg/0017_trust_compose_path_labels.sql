@@ -1,0 +1,1 @@
+ALTER TABLE "environments" ADD COLUMN "trust_compose_path_labels" boolean DEFAULT false NOT NULL;

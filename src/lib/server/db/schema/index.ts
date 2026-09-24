@@ -34,6 +34,7 @@ export const environments = sqliteTable('environments', {
 	collectActivity: integer('collect_activity', { mode: 'boolean' }).default(true),
 	collectMetrics: integer('collect_metrics', { mode: 'boolean' }).default(true),
 	highlightChanges: integer('highlight_changes', { mode: 'boolean' }).default(true),
+	trustComposePathLabels: integer('trust_compose_path_labels', { mode: 'boolean' }).notNull().default(false),
 	labels: text('labels'), // JSON array of label strings for categorization
 	// Connection settings
 	connectionType: text('connection_type').default('socket'), // 'socket' | 'direct' | 'hawser-standard' | 'hawser-edge'

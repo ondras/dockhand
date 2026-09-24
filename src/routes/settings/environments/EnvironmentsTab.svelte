@@ -61,6 +61,7 @@
 		collectActivity: boolean;
 		collectMetrics: boolean;
 		highlightChanges: boolean;
+		trustComposePathLabels: boolean;
 		connectionType?: 'socket' | 'direct' | 'hawser-standard' | 'hawser-edge';
 		labels?: string[];
 		createdAt: string;

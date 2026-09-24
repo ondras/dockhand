@@ -120,6 +120,7 @@
 		collectActivity: boolean;
 		collectMetrics: boolean;
 		highlightChanges: boolean;
+		trustComposePathLabels: boolean;
 		connectionType?: ConnectionType;
 		hawserLastSeen?: string;
 		hawserAgentId?: string;
@@ -300,6 +301,7 @@
 	let formCollectActivity = $state(true);
 	let formCollectMetrics = $state(true);
 	let formHighlightChanges = $state(true);
+	let formTrustComposePathLabels = $state(false);
 	let formDiskWarningEnabled = $state(true);
 	let formDiskWarningMode = $state<'percentage' | 'absolute'>('percentage');
 	let formDiskWarningThreshold = $state(80);
@@ -602,6 +604,7 @@
 			formCollectActivity = environment.collectActivity ?? true;
 			formCollectMetrics = environment.collectMetrics ?? true;
 			formHighlightChanges = environment.highlightChanges ?? true;
+			formTrustComposePathLabels = environment.trustComposePathLabels ?? false;
 			formConnectionType = (environment.connectionType as ConnectionType) || 'socket';
 			formHawserToken = '';
 			hasStoredHawserToken = !!environment.hasHawserToken;
@@ -646,6 +649,7 @@
 			formCollectActivity = true;
 			formCollectMetrics = true;
 			formHighlightChanges = true;
+			formTrustComposePathLabels = false;
 			formDiskWarningEnabled = true;
 			formDiskWarningMode = 'percentage';
 			formDiskWarningThreshold = 80;
@@ -862,6 +866,7 @@
 					collectActivity: formCollectActivity,
 					collectMetrics: formCollectMetrics,
 					highlightChanges: formHighlightChanges,
+					trustComposePathLabels: formTrustComposePathLabels,
 					labels: formLabels,
 					connectionType: formConnectionType,
 					hawserToken: formHawserToken || undefined,
@@ -1043,6 +1048,7 @@
 					collectActivity: formCollectActivity,
 					collectMetrics: formCollectMetrics,
 					highlightChanges: formHighlightChanges,
+					trustComposePathLabels: formTrustComposePathLabels,
 					labels: formLabels,
 					connectionType: formConnectionType,
 					hawserToken: formHawserToken || undefined,
@@ -1970,6 +1976,19 @@
 								</p>
 							</div>
 						{/if}
+
+						<div class="flex items-start justify-between gap-4 rounded-lg border p-4">
+							<div class="space-y-1">
+								<p class="text-sm font-medium">Trust Compose path labels</p>
+								<p class="text-xs text-muted-foreground">
+									LOCAL Docker via Unix socket only. Trust Compose labels to locate stack files.
+									Paths must be absolute, mapped 1:1 from the Docker host, readable inside Dockhand,
+									and under <code>STACKS_DIR</code> or Dockhand's managed stack roots.
+									Enable only if you trust containers on this Docker host. Ignored for non-socket connections; the saved value is preserved.
+								</p>
+							</div>
+							<TogglePill bind:checked={formTrustComposePathLabels} disabled={formConnectionType !== 'socket'} />
+						</div>
 
 						<!-- Stack path: hawser = backup-only; direct = backup + relative-bind rewrite on deploy -->
 						{#if usesStackPath(formConnectionType)}

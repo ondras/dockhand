@@ -177,6 +177,7 @@ export async function createEnvironment(env: Omit<Environment, 'id' | 'createdAt
 		collectActivity: env.collectActivity !== false,
 		collectMetrics: env.collectMetrics !== false,
 		highlightChanges: env.highlightChanges !== false,
+		trustComposePathLabels: env.trustComposePathLabels ?? false,
 		labels: env.labels || null,
 		connectionType: env.connectionType || 'socket',
 		hawserToken: encrypt(env.hawserToken) || null
@@ -204,6 +205,7 @@ export async function updateEnvironment(id: number, env: Partial<Environment>): 
 	if (env.collectActivity !== undefined) updateData.collectActivity = env.collectActivity;
 	if (env.collectMetrics !== undefined) updateData.collectMetrics = env.collectMetrics;
 	if (env.highlightChanges !== undefined) updateData.highlightChanges = env.highlightChanges;
+	if (env.trustComposePathLabels !== undefined) { updateData.trustComposePathLabels = env.trustComposePathLabels; }
 	if (env.labels !== undefined) updateData.labels = env.labels;
 	if (env.connectionType !== undefined) updateData.connectionType = env.connectionType;
 	if (env.hawserToken !== undefined) updateData.hawserToken = encrypt(env.hawserToken);
@@ -3084,6 +3086,26 @@ export async function getStackSources(environmentId?: number | null): Promise<St
 	return enrichedResults;
 }
 
+/** Register a label path only while the stack is still unassigned, preserving metadata. */
+export async function assignStackComposePathFromLabel(stackName: string, environmentId: number, composePath: string): Promise<boolean> {
+	const result = await db.insert(stackSources).values({
+		stackName,
+		environmentId,
+		composePath,
+		sourceType: 'internal'
+	}).onConflictDoUpdate({
+		target: [stackSources.stackName, stackSources.environmentId],
+		set: { composePath, sourceType: 'internal', updatedAt: new Date().toISOString() },
+		setWhere: and(
+			eq(stackSources.sourceType, 'external'),
+			isNull(stackSources.composePath),
+			isNull(stackSources.gitRepositoryId),
+			isNull(stackSources.gitStackId)
+		)
+	}).returning({ id: stackSources.id });
+	return result.length > 0;
+}
+
 export async function upsertStackSource(data: {
 	stackName: string;
 	environmentId?: number | null;
@@ -3098,6 +3120,17 @@ export async function upsertStackSource(data: {
 	const existing = await getStackSource(data.stackName, data.environmentId);
 
 	if (existing) {
+		// External metadata-only saves (e.g. the first icon) must not undo an
+		// assignment that completed between the caller's lookup and this write.
+		if (data.sourceType == 'external' && data.composePath === undefined && data.gitRepositoryId === undefined && data.gitStackId === undefined) {
+			await db.update(stackSources).set({
+				updatedAt: new Date().toISOString(),
+				...(data.icon !== undefined && { icon: data.icon }),
+				...(data.envPath !== undefined && { envPath: data.envPath }),
+				...(data.secretProviderId !== undefined && { secretProviderId: data.secretProviderId })
+			}).where(eq(stackSources.id, existing.id));
+			return getStackSource(data.stackName, data.environmentId) as Promise<StackSourceData>;
+		}
 		const newRepoId = data.gitRepositoryId || null;
 		const newStackId = data.gitStackId || null;
 		const changes: string[] = [];
@@ -3125,7 +3158,7 @@ export async function upsertStackSource(data: {
 		return getStackSource(data.stackName, data.environmentId) as Promise<StackSourceData>;
 	} else {
 		console.log(`[GitStack] Creating stack_sources "${data.stackName}" env=${data.environmentId} type=${data.sourceType} repoId=${data.gitRepositoryId || null} stackId=${data.gitStackId || null}`);
-		await db.insert(stackSources).values({
+		const inserted = await db.insert(stackSources).values({
 			stackName: data.stackName,
 			environmentId: data.environmentId ?? null,
 			sourceType: data.sourceType,
@@ -3135,7 +3168,10 @@ export async function upsertStackSource(data: {
 			envPath: data.envPath ?? null,
 			secretProviderId: data.secretProviderId ?? null,
 			icon: data.icon ?? null
-		});
+		}).onConflictDoNothing().returning({ id: stackSources.id });
+		// An automatic assignment may have won the insert while this manual save
+		// was in flight. Apply the explicit save to that row instead of failing.
+		if (!inserted.length) { return upsertStackSource(data); }
 		return getStackSource(data.stackName, data.environmentId) as Promise<StackSourceData>;
 	}
 }

@@ -19,6 +19,7 @@ export interface Environment {
 	publicIp?: string | null;
 	timezone?: string;
 	highlightChanges?: boolean;
+	trustComposePathLabels: boolean;
 }
 
 const STORAGE_KEY = 'dockhand:environment';

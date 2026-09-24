@@ -120,6 +120,13 @@
       "when": 1789748940121,
       "tag": "0016_add_tags",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1790232467122,
+      "tag": "0017_trust_compose_path_labels",
+      "breakpoints": true
     }
   ]
 }

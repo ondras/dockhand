@@ -10946,6 +10946,9 @@
                   },
                   "labels": {
                     "type": "string"
+                  },
+                  "trustComposePathLabels": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -11191,6 +11194,9 @@
                     "type": "boolean"
                   },
                   "highlightChanges": {
+                    "type": "boolean"
+                  },
+                  "trustComposePathLabels": {
                     "type": "boolean"
                   },
                   "labels": {
@@ -27788,6 +27794,98 @@
             }
           }
         }
+      }
+    },
+    "/api/stacks/auto-adopt": {
+      "post": {
+        "operationId": "post_api_stacks_auto-adopt",
+        "tags": [
+          "stacks"
+        ],
+        "summary": "Automatically assign trusted local Compose path labels to unassigned stacks",
+        "parameters": [
+          {
+            "name": "env",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Environment id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "stackName": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "reason": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "stackName",
+                          "status"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "results"
+                  ]
+                },
+                "example": {
+                  "results": [
+                    {
+                      "stackName": "string",
+                      "status": "string",
+                      "reason": "string",
+                      "message": "string"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid environment id or unsupported connection type"
+          },
+          "403": {
+            "description": "Permission denied (needs stacks:create and environment access)"
+          },
+          "404": {
+            "description": "Environment not found"
+          },
+          "500": {
+            "description": "Failed to discover or assign stacks"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "description": "Requires the environment's Trust Compose path labels opt-in and a local socket connection. Registers files without modifying or deploying them. Existing assignments always win."
       }
     },
     "/api/stacks/base-path": {
